@@ -102,31 +102,53 @@ const licenseBenefit = await polar.benefits.create({
   },
 });
 
-// Attach to product
-await polar.products.update({
-  id: basicPlan.id,
-  benefitIds: [licenseBenefit.id],
-});
+// Attach the benefit to the product in the Polar dashboard
+// (Organization → Products → [product] → Benefits).
 ```
 
 ### 4. Set Up Webhooks
 
 ```typescript
-// Webhook handler for new Polar events
-export const POST = Webhooks({
-  webhookSecret: process.env.POLAR_WEBHOOK_SECRET!,
+import { validateEvent, WebhookVerificationError } from "@polar-sh/sdk/webhooks";
 
-  onOrderPaid: async (order) => {
-    // Grant access in your system
-    await grantAccess(order.customer.external_id, order.product_id);
-  },
+export async function POST(request: Request): Promise<Response> {
+  const body = await request.text();
 
-  onSubscriptionCanceled: async (sub) => {
-    // Schedule access removal
-    await scheduleAccessRemoval(sub.customer.external_id, sub.ends_at);
-  },
-});
+  let event: ReturnType<typeof validateEvent>;
+  try {
+    event = validateEvent(
+      body,
+      {
+        "webhook-id": request.headers.get("webhook-id") ?? "",
+        "webhook-timestamp": request.headers.get("webhook-timestamp") ?? "",
+        "webhook-signature": request.headers.get("webhook-signature") ?? "",
+      },
+      process.env.POLAR_WEBHOOK_SECRET!,
+    );
+  } catch (error) {
+    if (error instanceof WebhookVerificationError) {
+      return Response.json({ received: false }, { status: 403 });
+    }
+    throw error;
+  }
+
+  switch (event.type) {
+    case "order.paid":
+      // Grant access in your system
+      await grantAccess(event.data.customer.externalId, event.data.productId);
+      break;
+
+    case "subscription.canceled":
+      // Schedule access removal
+      await scheduleAccessRemoval(event.data.customer.externalId, event.data.endsAt);
+      break;
+  }
+
+  return Response.json({ received: true });
+}
 ```
+
+See the `polar-integration` skill for the full webhook recipe (event types, framework variations, raw-body requirement, idempotency).
 
 ## Migration from Stripe Billing
 
@@ -194,9 +216,9 @@ async function migrateSubscription(customer: ExportedCustomer) {
 
   // Create checkout for customer to enter new payment method
   const checkout = await polar.checkouts.create({
-    productId: polarProductId,
+    products: [polarProductId],
     customerEmail: customer.email,
-    customerExternalId: customer.stripeCustomerId,
+    externalCustomerId: customer.stripeCustomerId,
     successUrl: `https://yoursite.com/migration-complete?customer=${customer.stripeCustomerId}`,
     // Allow discount for migration
     discountId: "migration_discount_xxx",
@@ -215,9 +237,10 @@ async function migrateSubscription(customer: ExportedCustomer) {
 ### Handle Migration Completion
 
 ```typescript
-// Webhook: Customer completed Polar checkout
-onOrderPaid: async (order) => {
-  const stripeCustomerId = order.customer.external_id;
+// Inside the validateEvent switch in your webhook handler:
+case "order.paid": {
+  const order = event.data;
+  const stripeCustomerId = order.customer.externalId;
 
   if (stripeCustomerId?.startsWith("cus_")) {
     // Cancel Stripe subscription at period end
@@ -241,6 +264,7 @@ onOrderPaid: async (order) => {
       },
     });
   }
+  break;
 }
 ```
 
@@ -279,9 +303,9 @@ const paddleToPolar = {
 async function migratePaddleCustomer(paddleUser: PaddleSubscriber) {
   // Create checkout with Polar
   const checkout = await polar.checkouts.create({
-    productId: paddleToPolar.products[paddleUser.plan_id],
+    products: [paddleToPolar.products[paddleUser.plan_id]],
     customerEmail: paddleUser.user_email,
-    customerExternalId: `paddle_${paddleUser.user_id}`,
+    externalCustomerId: `paddle_${paddleUser.user_id}`,
     successUrl: "https://yoursite.com/migrated",
   });
 

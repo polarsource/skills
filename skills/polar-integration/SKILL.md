@@ -1,5 +1,5 @@
 ---
-name: polar-sdk-integration
+name: polar-integration
 description: Add Polar billing to a TypeScript/JavaScript app using the @polar-sh/sdk package. Use this skill whenever the user wants to add a Checkout endpoint, a Customer Portal endpoint, or a Webhooks endpoint for Polar to any framework — Next.js, Express, Hono, Astro, SvelteKit, Remix, TanStack Start, Nuxt, Fastify, Elysia, Deno, Supabase Edge Functions, Cloudflare Workers, Bun, etc.
 ---
 
@@ -194,6 +194,10 @@ app.get("/checkout", async (c) => {
 ```
 
 **Elysia:**
+
+```ts
+app.get("/checkout", ({ request, redirect }) => {
+  const url = new URL(request.url);
   // ... same body, `return redirect(redirectUrl.toString())` ...
 });
 ```

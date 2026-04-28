@@ -156,7 +156,7 @@ describe("Polar Checkout", () => {
 
   it("should create checkout session", async () => {
     const checkout = await polar.checkouts.create({
-      productId: testProductId,
+      products: [testProductId],
       successUrl: "http://localhost:3000/success",
       customerEmail: "test@example.com",
     });
@@ -168,7 +168,7 @@ describe("Polar Checkout", () => {
 
   it("should retrieve checkout", async () => {
     const checkout = await polar.checkouts.create({
-      productId: testProductId,
+      products: [testProductId],
       successUrl: "http://localhost:3000/success",
     });
 
