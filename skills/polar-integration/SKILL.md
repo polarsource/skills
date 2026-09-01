@@ -1,6 +1,6 @@
 ---
 name: polar-integration
-description: Add Polar billing to a TypeScript/JavaScript app using the @polar-sh/sdk package. Use this skill whenever the user wants to add a Checkout endpoint, a Customer Portal endpoint, or a Webhooks endpoint for Polar to any framework — Next.js, Express, Hono, Astro, SvelteKit, Remix, TanStack Start, Nuxt, Fastify, Elysia, Deno, Supabase Edge Functions, Cloudflare Workers, Bun, etc.
+description: Add Polar billing to a TypeScript/JavaScript app using the @polar-sh/sdk package. Use this skill whenever the user wants to add a Checkout endpoint, a Customer Portal endpoint, or a Webhooks endpoint for Polar to any framework — Hono, Express, Fastify, SvelteKit, Astro, Remix, Elysia, Deno, Supabase Edge Functions, Cloudflare Workers, Bun, etc. — or to migrate off a deprecated @polar-sh framework adapter. Also covers when to prefer an official adapter instead (Next.js, Better Auth, TanStack Start, Nuxt).
 ---
 
 # Polar SDK integration
@@ -16,7 +16,11 @@ npm install @polar-sh/sdk
 # or pnpm / yarn / bun
 ```
 
-Don't install `@polar-sh/<framework>` packages (e.g. `@polar-sh/nextjs`, `@polar-sh/express`, `@polar-sh/hono`, etc.) — they are deprecated. `@polar-sh/sdk` is all you need for these recipes.
+**First, route: adapter or SDK-direct?** Polar maintains official adapter packages for four ecosystems, versioned `1.x` and developed in [polarsource/polar](https://github.com/polarsource/polar): `@polar-sh/nextjs`, `@polar-sh/better-auth`, `@polar-sh/tanstack-start`, `@polar-sh/nuxt`. If the user is on one of those, prefer the adapter — only wire SDK-direct if they explicitly ask for it.
+
+For **every other framework**, these recipes are the official integration path. Don't install any other `@polar-sh/<framework>` package: the remaining adapters (`@polar-sh/hono`, `@polar-sh/express`, `@polar-sh/fastify`, `@polar-sh/sveltekit`, `@polar-sh/astro`, `@polar-sh/remix`, `@polar-sh/elysia`, `@polar-sh/supabase`, `@polar-sh/deno`) are deprecated and pinned at their final `0.x`. `@polar-sh/sdk` is all you need.
+
+If the project **already uses** a deprecated adapter, migrate it to these same recipes — [references/adapter-migration.md](references/adapter-migration.md) maps the old adapter API (`Checkout`/`CustomerPortal`/`Webhooks` config, `onXxx` handlers) onto them, including the Express/Fastify raw-body change.
 
 Required environment variables (use whatever loader your framework provides — `process.env`, `Deno.env`, `import.meta.env`, etc.):
 
@@ -399,5 +403,8 @@ app.post("/polar/webhook", express.raw({ type: "application/json" }), async (req
 
 ---
 
-- Don't install `@polar-sh/<framework>` packages (e.g. `@polar-sh/express`) — they are deprecated. `@polar-sh/sdk` is all you need for these recipes. The only exceptions are `@polar-sh/nextjs` for Next.js App Router and `@polar-sh/better-auth` for Better Auth.
+## Reminder — adapter packages
+
+- Supported adapters, preferred over SDK-direct wiring on their frameworks: `@polar-sh/nextjs`, `@polar-sh/better-auth`, `@polar-sh/tanstack-start`, `@polar-sh/nuxt` (`1.x`, maintained in [polarsource/polar](https://github.com/polarsource/polar)).
+- Every other `@polar-sh/<framework>` adapter is deprecated (pinned at its final `0.x`) — never install one in new code. Projects already on one migrate to these recipes via [references/adapter-migration.md](references/adapter-migration.md).
 

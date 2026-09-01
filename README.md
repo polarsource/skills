@@ -17,11 +17,11 @@ Interactive onboarding wizard to set up Polar payments from scratch — installs
 
 ### polar-integration
 
-Canonical guide for wiring up Polar's three core HTTP endpoints — Checkout, Customer Portal, and Webhooks — using `@polar-sh/sdk` directly. Recipes are framework-agnostic (Web Standards `Request`/`Response`) with per-framework adjustments.
+Canonical guide for wiring up Polar's three core HTTP endpoints — Checkout, Customer Portal, and Webhooks — using `@polar-sh/sdk` directly. Recipes are framework-agnostic (Web Standards `Request`/`Response`) with per-framework adjustments. Defers to the official adapters (`@polar-sh/nextjs`, `@polar-sh/better-auth`, `@polar-sh/tanstack-start`, `@polar-sh/nuxt`) when the project is on one of those.
 
 **Use when:**
 - Adding a Checkout, Customer Portal, or Webhooks endpoint
-- Working in any TS/JS framework: Next.js, Express, Hono, Astro, SvelteKit, Remix, TanStack Start, Nuxt, Fastify, Elysia, Deno, Supabase Edge Functions, Cloudflare Workers, Bun
+- Working in a TS/JS framework without an official adapter: Hono, Express, Fastify, SvelteKit, Astro, Remix, Elysia, Deno, Supabase Edge Functions, Cloudflare Workers, Bun
 - Verifying webhook signatures with `validateEvent`
 
 ### polar-testing
@@ -50,7 +50,15 @@ Guide for migrating to Polar from other payment platforms.
 
 ## Installation
 
-### Claude Code
+### skills CLI
+
+Install a skill with the [skills CLI](https://www.skills.sh/polarsource/skills):
+
+```bash
+npx skills add https://github.com/polarsource/skills --skill polar-integration
+```
+
+### Claude Code (manual)
 
 ```bash
 cp -r skills/setup-polar ~/.claude/skills/
