@@ -105,25 +105,24 @@ Pass along the product ID from Step 5 so checkout links can be tested in Step 8.
 
 ### Step 7: Set Up Webhooks
 
-1. Start the local development server.
-2. Start ngrok against the dev server's port:
-   ```bash
-   ngrok http <port>
-   ```
-3. Copy the ngrok URL (e.g., `https://abc123.ngrok.io`).
+Use the Polar CLI to forward webhooks to the local dev server. It needs no tunnel and no dashboard endpoint. The `polar-testing` skill ("Local Webhook Testing") has the details.
 
-Use MCP to create a webhook endpoint, or guide the user to the dashboard:
-- Sandbox: https://sandbox.polar.sh → Settings → Webhooks
-- Add endpoint: `https://[ngrok-url]/<webhook-path>` (use the path from the route generated in Step 6).
-- Select events: `order.paid`, `subscription.created`, `subscription.canceled`.
-- Copy the webhook secret into the env var loader from Step 6.
+1. Install the CLI (`curl -fsSL https://polar.sh/install.sh | bash`) and ask the user to run `polar auth login --sandbox`, which opens a browser.
+2. Save the local signing secret without printing it, then restart the dev server:
+   ```bash
+   secret=$(polar listen --print-secret) && echo "POLAR_WEBHOOK_SECRET=$secret" >> .env
+   ```
+3. Start `polar listen <port>/<webhook-path>` in the background, using the path from the route generated in Step 6, and keep it running.
+4. Run `polar trigger order.paid`. It prints the handler's response and exits with status 1 when the handler fails. Fix the handler and repeat until it exits with 0.
+
+When deploying, create a webhook endpoint for the public URL with MCP or in the dashboard (Settings → Webhooks), select `order.paid`, `subscription.created` and `subscription.canceled`, and use that endpoint's secret as `POLAR_WEBHOOK_SECRET` in the deployed environment.
 
 ### Step 8: Test the Integration
 
 1. Start the dev server.
 2. Visit the checkout URL with the product ID from Step 5 (path and query shape come from the route generated in Step 6).
 3. Complete checkout using test card: `4242 4242 4242 4242`.
-4. Verify the webhook was received in terminal logs.
+4. Verify that `polar listen` shows `order.paid` with a 2xx status from the handler.
 5. Check the success page displays correctly.
 
 ### Step 9: Next Steps

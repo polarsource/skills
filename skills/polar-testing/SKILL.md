@@ -1,7 +1,7 @@
 ---
 name: polar-testing
 description: |
-  Guide for testing Polar payment integrations using the sandbox environment. Use this skill when: (1) Setting up the Polar sandbox for development; (2) Testing checkout flows without real payments; (3) Using Stripe test cards with Polar; (4) Writing integration tests for payment flows; (5) Testing webhooks locally with ngrok; (6) Mocking Polar in unit tests; (7) Setting up CI/CD pipelines with Polar sandbox; (8) Debugging payment issues in sandbox.
+  Guide for testing Polar payment integrations using the sandbox environment. Use this skill when: (1) Setting up the Polar sandbox for development; (2) Testing checkout flows without real payments; (3) Using Stripe test cards with Polar; (4) Writing integration tests for payment flows; (5) Testing webhooks locally with the Polar CLI (`polar listen`, `polar trigger`) and generating webhook fixtures; (6) Mocking Polar in unit tests; (7) Setting up CI/CD pipelines with Polar sandbox; (8) Debugging payment issues in sandbox.
 ---
 
 # Polar Testing Guide
@@ -97,31 +97,61 @@ Polar uses Stripe for payment processing. Use these test card numbers:
 
 ## Local Webhook Testing
 
-### Using ngrok
+Use the Polar CLI. It forwards your organization's webhook events straight to your local server: no tunnel, no public URL, and no webhook endpoint in the dashboard.
+
+### Install and sign in
 
 ```bash
-# Start your app
-npm run dev
+# macOS, Linux, WSL
+curl -fsSL https://polar.sh/install.sh | bash
 
-# In another terminal, start ngrok
-ngrok http 3000
+polar auth login --sandbox
 ```
 
-Copy the ngrok URL (e.g., `https://abc123.ngrok.io`) and configure it in Polar:
+`polar auth login` opens a browser, so ask the user to run it. Check the result with `polar auth whoami --json`: `environments` lists the signed-in environments and `organization` is the active one.
 
-1. Go to sandbox.polar.sh → Settings → Webhooks
-2. Add endpoint: `https://abc123.ngrok.io/api/webhooks/polar`
-3. Select events to receive
-4. Copy the webhook secret
-
-### Environment Variables
+Where no browser is available (CI, remote machines, cloud agents), an organization access token replaces `auth login`:
 
 ```bash
-# .env.local
-POLAR_ACCESS_TOKEN=pat_sandbox_xxx
-POLAR_WEBHOOK_SECRET=whsec_sandbox_xxx
-POLAR_SERVER=sandbox
+export POLAR_ACCESS_TOKEN=polar_oat_...   # scopes: webhooks:read, webhooks:write, organizations:read
+export POLAR_ENVIRONMENT=sandbox
 ```
+
+### Forward events to your app
+
+```bash
+polar listen 3000/api/polar/webhook
+```
+
+`listen` takes a port, a `port/path`, or a full URL. It runs until stopped, so start it in its own terminal or as a background process and keep it running while you test. It forwards every webhook event for the organization, including the ones real sandbox activity produces, such as completing a test checkout.
+
+### Set the webhook secret
+
+`listen` signs forwarded events with a local secret, not a dashboard endpoint's secret. Write it to `.env` without printing it:
+
+```bash
+secret=$(polar listen --print-secret) && echo "POLAR_WEBHOOK_SECRET=$secret" >> .env
+```
+
+If `.env` already has a `POLAR_WEBHOOK_SECRET` line, replace it instead of appending, then restart the dev server. Deployed environments use the secret of their dashboard webhook endpoint.
+
+### Send test events
+
+```bash
+polar trigger order.paid
+```
+
+`trigger` sends a sample event through the running `listen`. When your handler doesn't accept it (a non-2xx response, a connection error, or a redirect), it prints the handler's response body and exits with status 1. Read that output, fix the handler, and run the same command again until it exits with 0.
+
+A redirect usually means auth middleware is intercepting the webhook route. Exclude the route from it: Polar never follows redirects when delivering webhooks.
+
+```bash
+polar trigger --list --json                     # every event you can send
+polar trigger order.paid --override data.customer.email=jane@example.com
+polar trigger order.paid --seed 7               # the same IDs on every run
+```
+
+`--override` takes `path=value` and can be repeated. The API rejects paths that don't exist in the payload.
 
 ## Integration Testing
 
@@ -180,55 +210,58 @@ describe("Polar Checkout", () => {
 
 ### Test Webhook Handler
 
+Generate fixtures from real payloads instead of writing them by hand. `--json` prints the payload without sending it, so `listen` doesn't need to be running:
+
+```bash
+mkdir -p test/fixtures
+polar trigger order.paid --json --seed 1 > test/fixtures/order.paid.json
+polar trigger subscription.created --json --seed 1 > test/fixtures/subscription.created.json
+```
+
+Sign them the way Polar does ([Standard Webhooks](https://www.standardwebhooks.com/)): an HMAC-SHA256 of `id.timestamp.body`, base64-encoded and keyed with the secret string. This test calls the webhook route from `polar-integration` Recipe 3 directly:
+
 ```typescript
-import { describe, it, expect } from "vitest";
-import { createHmac } from "crypto";
+import { createHmac } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 
-describe("Webhook Handler", () => {
-  const webhookSecret = "whsec_test_secret";
+const secret = "test_webhook_secret";
+let POST: (request: Request) => Promise<Response>;
 
-  function signPayload(payload: string, timestamp: number): string {
-    const signedPayload = `${timestamp}.${payload}`;
-    return createHmac("sha256", webhookSecret)
-      .update(signedPayload)
-      .digest("hex");
-  }
+beforeAll(async () => {
+  vi.stubEnv("POLAR_WEBHOOK_SECRET", secret);
+  ({ POST } = await import("../app/api/polar/webhook/route"));
+});
 
-  it("should verify valid webhook signature", async () => {
-    const payload = JSON.stringify({
-      type: "order.paid",
-      data: { id: "order_123" },
-    });
-    const timestamp = Math.floor(Date.now() / 1000);
-    const signature = signPayload(payload, timestamp);
+const sign = (id: string, timestamp: number, body: string) =>
+  `v1,${createHmac("sha256", secret).update(`${id}.${timestamp}.${body}`).digest("base64")}`;
 
-    const response = await fetch("/api/webhooks/polar", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "webhook-id": "evt_123",
-        "webhook-timestamp": timestamp.toString(),
-        "webhook-signature": `v1,${signature}`,
-      },
-      body: payload,
-    });
+const webhookRequest = (body: string, signature?: string) => {
+  const id = "msg_test";
+  const timestamp = Math.floor(Date.now() / 1000);
+  return new Request("http://localhost/api/polar/webhook", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "webhook-id": id,
+      "webhook-timestamp": String(timestamp),
+      "webhook-signature": signature ?? sign(id, timestamp, body),
+    },
+    body,
+  });
+};
 
+describe("Polar webhook handler", () => {
+  it("accepts a signed order.paid event", async () => {
+    const body = await readFile("test/fixtures/order.paid.json", "utf8");
+    const response = await POST(webhookRequest(body));
     expect(response.status).toBe(200);
   });
 
-  it("should reject invalid signature", async () => {
-    const response = await fetch("/api/webhooks/polar", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "webhook-id": "evt_123",
-        "webhook-timestamp": "1234567890",
-        "webhook-signature": "v1,invalid",
-      },
-      body: JSON.stringify({ type: "order.paid" }),
-    });
-
-    expect(response.status).toBe(400);
+  it("rejects an invalid signature", async () => {
+    const body = await readFile("test/fixtures/order.paid.json", "utf8");
+    const response = await POST(webhookRequest(body, "v1,invalid"));
+    expect(response.status).toBe(403);
   });
 });
 ```
@@ -299,51 +332,11 @@ vi.mock("@polar-sh/sdk", () => ({
 
 ### Mock Webhook Payloads
 
+Load the fixtures generated with `polar trigger <event> --json` (see Test Webhook Handler). Hand-written payloads drift from the real shape, and `validateEvent` rejects them.
+
 ```typescript
-export const mockWebhookPayloads = {
-  orderPaid: {
-    type: "order.paid",
-    data: {
-      id: "order_123",
-      status: "paid",
-      customer_id: "cust_123",
-      product_id: "prod_123",
-      total_amount: 2900,
-      currency: "usd",
-    },
-  },
-  subscriptionCreated: {
-    type: "subscription.created",
-    data: {
-      id: "sub_123",
-      status: "active",
-      customer_id: "cust_123",
-      product_id: "prod_123",
-      current_period_end: "2025-02-15T00:00:00Z",
-    },
-  },
-  subscriptionCanceled: {
-    type: "subscription.canceled",
-    data: {
-      id: "sub_123",
-      status: "active",
-      cancel_at_period_end: true,
-      ends_at: "2025-02-15T00:00:00Z",
-    },
-  },
-  benefitGrantCreated: {
-    type: "benefit_grant.created",
-    data: {
-      id: "grant_123",
-      customer_id: "cust_123",
-      benefit_id: "benefit_123",
-      is_granted: true,
-      properties: {
-        license_key: "TEST-XXXX-XXXX-XXXX",
-      },
-    },
-  },
-};
+import orderPaid from "./fixtures/order.paid.json";
+import subscriptionCreated from "./fixtures/subscription.created.json";
 ```
 
 ## CI/CD Integration
@@ -388,12 +381,16 @@ Create sandbox credentials specifically for CI:
 
 1. Create a dedicated sandbox organization for CI
 2. Generate a CI-specific access token
-3. Set up webhook endpoint (or skip webhook tests in CI)
+3. Commit the webhook fixtures; handler tests sign them with a test secret and need no webhook endpoint
 4. Store credentials in GitHub Secrets
 
 ## Debugging Tips
 
 ### Check Webhook Delivery
+
+Locally, `polar listen` logs every forwarded event with your handler's status, and `polar trigger` prints the handler's response body when it fails.
+
+For a deployed endpoint:
 
 1. Go to sandbox.polar.sh → Settings → Webhooks
 2. Click on your endpoint
@@ -404,6 +401,7 @@ Create sandbox credentials specifically for CI:
 
 **Webhook signature mismatch**
 - Ensure you're using the sandbox webhook secret
+- Locally, use the secret from `polar listen --print-secret` and restart the dev server after changing `.env`
 - Check that the raw body is being passed (not parsed JSON)
 - Verify timestamp is within tolerance (5 minutes)
 
