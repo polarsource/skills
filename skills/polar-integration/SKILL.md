@@ -370,6 +370,18 @@ export async function POST(request: Request): Promise<Response> {
 1. **Use the raw request body** for `validateEvent`. If your framework parsed JSON for you (Express's `express.json()`, Fastify's default body parser), disable it on this route or read the raw body manually. Signature verification fails on re-serialized JSON.
 2. **Respond fast.** Polar retries on non-2xx and on timeouts. If a handler is slow (sending email, syncing inventory), enqueue it (queue/cron/background job) and return 200 immediately.
 3. **Idempotency.** Polar may redeliver. Deduplicate on the `webhook-id` header — it's unique per delivery and reused on retries (Standard Webhooks spec). Don't dedupe on `event.data.id`: that's the resource ID and is shared across distinct events about the same resource (e.g. `order.created` and `order.paid`).
+4. **Keep the route public.** Polar doesn't follow redirects, so a route behind auth middleware that redirects to a login page fails every delivery. The signature is the authentication.
+
+### Test it locally
+
+With the dev server running, forward events with the Polar CLI and send one (setup in `polar-testing`, "Local Webhook Testing"):
+
+```bash
+polar listen 3000/api/polar/webhook   # keep it running in the background
+polar trigger order.paid              # exits 1 and prints the response when the handler fails
+```
+
+Locally, `POLAR_WEBHOOK_SECRET` is the secret from `polar listen --print-secret`.
 
 ### Framework variations
 

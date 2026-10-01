@@ -33,7 +33,8 @@ Guide for testing Polar payment integrations using the sandbox environment.
 - Testing checkout flows without real payments
 - Using Stripe test cards with Polar
 - Writing integration tests for payment flows
-- Testing webhooks locally with ngrok
+- Testing webhooks locally with the Polar CLI (`polar listen`, `polar trigger`)
+- Generating webhook fixtures for handler tests
 - Mocking Polar in unit tests
 - Setting up CI/CD pipelines
 
@@ -73,6 +74,9 @@ Help me set up Polar in my Next.js app
 ```
 ```
 How do I test Polar webhooks locally?
+```
+```
+Write tests for my Polar webhook handler
 ```
 ```
 Help me migrate from Stripe to Polar
